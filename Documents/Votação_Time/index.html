@@ -130,6 +130,10 @@
     border-radius: 6px; transition: width .4s ease; width: 0;
   }
   .votes-num { font-size: 13px; color: var(--muted); margin-top: 6px; display: block; }
+  .voters { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { background: var(--card-2); border:1px solid var(--border); color: var(--muted);
+          padding:3px 9px; border-radius:999px; font-size:12px; }
+  .voters.small { color: var(--muted); font-size:12px; }
   .vote-btn {
     background: var(--success); color: #04241d; border: none;
     padding: 11px 18px; border-radius: 10px; font-weight: 800;
@@ -177,7 +181,7 @@
   <!-- ==================== PÁGINA: VOTAÇÃO ==================== -->
   <section id="votacao" class="page active">
     <h1>Votação</h1>
-    <p class="subtitle">Digite seu nome e vote em <strong>um</strong> candidato. Cada pessoa vota só uma vez.</p>
+    <p class="subtitle">Digite seu nome e vote nos times que quiser. Você pode votar em vários, só não pode repetir o mesmo.</p>
 
     <div id="config-warning" class="banner warn" style="display:none;">
       ⚠️ O site ainda não está conectado ao banco de dados. Abra o arquivo e preencha
@@ -192,7 +196,7 @@
       </div>
     </div>
 
-    <div id="voted-banner" class="banner ok" style="display:none;"></div>
+    <div class="banner ok">✅ Você pode votar em <strong>vários times</strong> — só não pode votar duas vezes no mesmo.</div>
 
     <div class="toolbar">
       <span class="total" id="total"></span>
@@ -205,10 +209,10 @@
   <!-- ==================== PÁGINA: ADICIONAR NOMES ==================== -->
   <section id="adicionar" class="page">
     <h1>Adicionar Nomes</h1>
-    <p class="subtitle">Cadastre os candidatos que vão aparecer na votação.</p>
+    <p class="subtitle">Cadastre os times que vão aparecer na votação.</p>
 
     <div class="add-row">
-      <input type="text" id="nome-input" placeholder="Nome do candidato..." maxlength="40" autocomplete="off">
+      <input type="text" id="nome-input" placeholder="Nome do time" maxlength="40" autocomplete="off">
       <button class="btn" id="add-btn">Adicionar</button>
     </div>
 
@@ -227,8 +231,8 @@
         • Project URL      -> cole em SUPABASE_URL
         • anon public key  -> cole em SUPABASE_ANON_KEY
    ============================================================ */
-const SUPABASE_URL      = "COLE_AQUI_A_PROJECT_URL";
-const SUPABASE_ANON_KEY = "COLE_AQUI_A_ANON_PUBLIC_KEY";
+const SUPABASE_URL      = "https://vcldizvbupzfudznljrs.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_8XFP7lGftZ1WMPLVHJhvKA_zNbCurJw";
 /* ============================================================ */
 
 const configurado = !SUPABASE_URL.startsWith("COLE_") && !SUPABASE_ANON_KEY.startsWith("COLE_");
@@ -239,19 +243,9 @@ const HEADERS = {
   "Content-Type": "application/json"
 };
 
-const LS_KEY = "meu_voto_v1";
+const LS_NOME = "meu_nome_v1";
 let candidatos = [];   // [{id, nome}]
-let votos = [];        // [{candidato_id, votante}]
-let meuVoto = carregarMeuVoto();  // {votante, candidato_id} | null
-
-function carregarMeuVoto() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; }
-}
-function salvarMeuVoto(v) {
-  meuVoto = v;
-  if (v) localStorage.setItem(LS_KEY, JSON.stringify(v));
-  else   localStorage.removeItem(LS_KEY);
-}
+let votos = [];        // [{candidato_id, votante, votante_nome}]
 
 /* ---------- Navbar ---------- */
 document.querySelectorAll("nav .tab").forEach(btn => {
@@ -289,7 +283,7 @@ async function carregar() {
   try {
     [candidatos, votos] = await Promise.all([
       apiGet("/candidatos?select=id,nome&order=id.asc"),
-      apiGet("/votos?select=candidato_id,votante")
+      apiGet("/votos?select=candidato_id,votante,votante_nome")
     ]);
     render();
   } catch (err) {
@@ -322,7 +316,7 @@ async function adicionarCandidato() {
 
 /* ---------- Remover candidato ---------- */
 async function removerCandidato(id) {
-  if (!confirm("Remover este candidato? Os votos dele também serão apagados.")) return;
+  if (!confirm("Remover este time? Os votos dele também serão apagados.")) return;
   try {
     await apiDelete("/candidatos?id=eq." + id);
     await carregar();
@@ -331,31 +325,33 @@ async function removerCandidato(id) {
 
 /* ---------- Votar ---------- */
 async function votar(candidatoId) {
-  if (meuVoto) { alert("Você já votou."); return; }
-  const votante = document.getElementById("votante-input").value.trim();
+  const input = document.getElementById("votante-input");
+  const votante = input.value.trim();
   if (!votante) {
     alert("Digite seu nome antes de votar.");
-    document.getElementById("votante-input").focus();
+    input.focus();
     return;
   }
   const chave = votante.toLowerCase();
+  if (votos.some(v => v.candidato_id === candidatoId && v.votante === chave)) {
+    alert("Você já votou nesse time.");
+    return;
+  }
+  localStorage.setItem(LS_NOME, votante);
   try {
     await apiInsert("votos", { votante: chave, votante_nome: votante, candidato_id: candidatoId });
-    salvarMeuVoto({ votante: chave, candidato_id: candidatoId });
     await carregar();
   } catch (err) {
-    if (err.status === 409) {
-      alert("Já existe um voto com esse nome. Cada pessoa pode votar só uma vez.");
-      salvarMeuVoto({ votante: chave, candidato_id: null });
-      render();
-    } else {
-      alert("Erro ao votar: " + err.message);
-    }
+    if (err.status === 409) { alert("Você já votou nesse time."); await carregar(); }
+    else alert("Erro ao votar: " + err.message);
   }
 }
 
 /* ---------- Render ---------- */
 function contarVotos(id) { return votos.filter(v => v.candidato_id === id).length; }
+function votantesDe(id) {
+  return votos.filter(v => v.candidato_id === id).map(v => v.votante_nome || v.votante);
+}
 
 function render() {
   const listaVot = document.getElementById("lista-votacao");
@@ -363,47 +359,36 @@ function render() {
   const totalVotos = votos.length;
   const maxVotos = Math.max(1, ...candidatos.map(c => contarVotos(c.id)));
 
-  document.getElementById("total").textContent =
-    candidatos.length + " candidato(s) · " + totalVotos + " voto(s)";
+  const nomeAtual = (document.getElementById("votante-input").value || "").trim().toLowerCase();
+  const meusVotos = new Set(votos.filter(v => v.votante === nomeAtual).map(v => v.candidato_id));
 
-  // Banner "já votei"
-  const vb = document.getElementById("voted-banner");
-  if (meuVoto) {
-    const cand = candidatos.find(c => c.id === meuVoto.candidato_id);
-    vb.innerHTML = "✅ Você já votou" + (cand ? " em <strong>" + escapar(cand.nome) + "</strong>" : "") +
-      ". &nbsp;<a id='clear-vote'>não sou eu / votar de novo</a>";
-    vb.style.display = "block";
-    document.getElementById("votante-input").disabled = true;
-    document.getElementById("clear-vote").onclick = () => {
-      salvarMeuVoto(null);
-      document.getElementById("votante-input").disabled = false;
-      render();
-    };
-  } else {
-    vb.style.display = "none";
-    document.getElementById("votante-input").disabled = false;
-  }
+  document.getElementById("total").textContent =
+    candidatos.length + " time(s) · " + totalVotos + " voto(s)";
 
   // Lista votação (ranking)
   if (!candidatos.length) {
-    listaVot.innerHTML = `<div class="empty">Nenhum candidato ainda.<br>Vá em <strong>Adicionar Nomes</strong> para começar.</div>`;
+    listaVot.innerHTML = `<div class="empty">Nenhum time ainda.<br>Vá em <strong>Adicionar Nomes</strong> para começar.</div>`;
   } else {
     const ordenados = [...candidatos].sort((a, b) => contarVotos(b.id) - contarVotos(a.id));
     listaVot.innerHTML = ordenados.map((c, i) => {
       const n = contarVotos(c.id);
       const pct = (n / maxVotos) * 100;
-      const escolhido = meuVoto && meuVoto.candidato_id === c.id;
-      const bloqueado = !!meuVoto;
+      const jaVotou = nomeAtual && meusVotos.has(c.id);
+      const nomes = votantesDe(c.id);
+      const chips = nomes.length
+        ? `<div class="voters">${nomes.map(x => `<span class="chip">${escapar(x)}</span>`).join("")}</div>`
+        : `<div class="voters small">Ninguém votou ainda</div>`;
       return `
-        <div class="candidate ${escolhido ? "chosen" : ""}">
+        <div class="candidate ${jaVotou ? "chosen" : ""}">
           <span class="rank">${i + 1}º</span>
           <div class="info">
-            <span class="name">${escapar(c.nome)} ${escolhido ? "✅" : ""}</span>
+            <span class="name">${escapar(c.nome)} ${jaVotou ? "✅" : ""}</span>
             <div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>
             <span class="votes-num">${n} voto(s)</span>
+            ${chips}
           </div>
-          <button class="vote-btn" ${bloqueado ? "disabled" : ""} onclick="votar(${c.id})">
-            ${escolhido ? "Votado" : "Votar"}
+          <button class="vote-btn" ${jaVotou ? "disabled" : ""} onclick="votar(${c.id})">
+            ${jaVotou ? "Votado" : "Votar"}
           </button>
         </div>`;
     }).join("");
@@ -411,7 +396,7 @@ function render() {
 
   // Lista adicionar
   if (!candidatos.length) {
-    listaNomes.innerHTML = `<div class="empty">Nenhum candidato cadastrado ainda.</div>`;
+    listaNomes.innerHTML = `<div class="empty">Nenhum time cadastrado ainda.</div>`;
   } else {
     listaNomes.innerHTML = candidatos.map(c => `
       <div class="candidate">
@@ -432,6 +417,13 @@ function escapar(txt) {
 /* ---------- Atualização ---------- */
 document.getElementById("refresh-btn").addEventListener("click", carregar);
 setInterval(() => { if (configurado) carregar(); }, 5000); // placar ao vivo
+
+const votanteInput = document.getElementById("votante-input");
+votanteInput.value = localStorage.getItem(LS_NOME) || "";
+votanteInput.addEventListener("input", () => {
+  localStorage.setItem(LS_NOME, votanteInput.value.trim());
+  render();
+});
 
 carregar();
 </script>
