@@ -118,13 +118,30 @@
     font-variant-numeric: tabular-nums;
   }
   ul.tasks { list-style: none; display: flex; flex-direction: column; gap: 7px; }
-  ul.tasks li {
-    font-size: 13.5px; line-height: 1.4; color: var(--text); padding-left: 18px; position: relative;
+  ul.tasks li.task {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 13.5px; line-height: 1.4; color: var(--text);
   }
-  ul.tasks li::before {
-    content: ""; position: absolute; left: 0; top: 7px; width: 7px; height: 7px;
-    border-radius: 50%; background: var(--accent);
+  ul.tasks li.task .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    flex: none; margin-top: 6px;
   }
+  ul.tasks li.task .task-txt { flex: 1; min-width: 0; word-break: break-word; }
+  ul.tasks li.task .rm-task {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex: none;
+  }
+  ul.tasks li.task .rm-task:hover { color: #DB4841; background: rgba(219,72,65,.12); }
+
+  /* mini-form para adicionar responsabilidade */
+  .add-mini { display: flex; gap: 6px; margin-top: 10px; }
+  .add-mini input { padding: 8px 10px; font-size: 12.5px; }
+  .btn-mini {
+    flex: none; width: 40px; background: var(--accent); color: #06121a; border: none;
+    border-radius: var(--radius); font-size: 18px; font-weight: 800; cursor: pointer;
+    line-height: 1; transition: filter .15s;
+  }
+  .btn-mini:hover { filter: brightness(1.08); }
 
   /* divisória perfurada (tema ticket de multa) */
   .perf { border-top: 1px dashed var(--border); margin: 2px 0 0; }
@@ -163,7 +180,7 @@
       <span class="brand-sep">/</span>
       <h1>🚦 Central de Multas — Distribuição da Equipe</h1>
     </div>
-    <p class="subtitle">Quem cuida de quê no time de multas: responsabilidades de cada pessoa e os órgãos sob responsabilidade. Você pode adicionar e remover órgãos a qualquer momento.</p>
+    <p class="subtitle">Quem cuida de quê no time de multas: responsabilidades e órgãos de cada pessoa. Você pode adicionar e remover responsabilidades e órgãos a qualquer momento.</p>
     <div class="stats" id="stats"></div>
   </div>
   <div class="caution"></div>
@@ -187,7 +204,7 @@
   <div class="toolbar">
     <button class="btn ghost" id="reset-btn">↺ Restaurar distribuição padrão</button>
   </div>
-  💾 As alterações (adicionar/remover órgãos) ficam salvas neste navegador. Para todos verem a mesma distribuição, mantenha a edição num só dispositivo/pessoa.
+  💾 As alterações (responsabilidades e órgãos) ficam salvas neste navegador. Para todos verem a mesma distribuição, mantenha a edição num só dispositivo/pessoa.
 </footer>
 
 <script>
@@ -241,6 +258,40 @@
   }
   function salvar() { localStorage.setItem(LS_KEY, JSON.stringify(orgaos)); }
 
+  /* ---------- Responsabilidades (editáveis) ---------- */
+  const LS_TAR = "multas_tarefas_v1";
+  let tarefas = carregarTarefas();
+
+  function carregarTarefas() {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_TAR));
+      if (s && typeof s === "object") return s;
+    } catch {}
+    const seed = {};
+    MEMBROS.forEach(m => seed[m.id] = [...m.tarefas]);
+    return seed;
+  }
+  function salvarTarefas() { localStorage.setItem(LS_TAR, JSON.stringify(tarefas)); }
+  function tarefasDe(id) { return tarefas[id] || []; }
+
+  function addTarefa(id) {
+    const input = document.getElementById("nova-tarefa-" + id);
+    const txt = input.value.trim();
+    if (!txt) { input.focus(); return; }
+    if (!tarefas[id]) tarefas[id] = [];
+    tarefas[id].push(txt);
+    salvarTarefas();
+    render();
+    const again = document.getElementById("nova-tarefa-" + id);
+    if (again) again.focus();
+  }
+  function removerTarefa(id, idx) {
+    if (!tarefas[id]) return;
+    tarefas[id].splice(idx, 1);
+    salvarTarefas();
+    render();
+  }
+
   /* ---------- Preenche o select de membros ---------- */
   document.getElementById("novo-membro").innerHTML =
     MEMBROS.map(m => `<option value="${m.id}">${m.nome}</option>`).join("");
@@ -266,10 +317,12 @@
     render();
   }
   document.getElementById("reset-btn").addEventListener("click", () => {
-    if (!confirm("Restaurar a distribuição padrão? Suas alterações serão descartadas.")) return;
+    if (!confirm("Restaurar tudo (responsabilidades e órgãos) para o padrão? Suas alterações serão descartadas.")) return;
     localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(LS_TAR);
     orgaos = carregar();
     seq = orgaos.reduce((m, o) => Math.max(m, o.id), 0) + 1;
+    tarefas = carregarTarefas();
     render();
   });
 
@@ -305,8 +358,17 @@
             </div>
           </div>
           <div class="section">
-            <h3>Responsabilidades</h3>
-            <ul class="tasks">${m.tarefas.map(t => `<li>${escapar(t)}</li>`).join("")}</ul>
+            <h3>Responsabilidades <span class="count">${tarefasDe(m.id).length}</span></h3>
+            <ul class="tasks">${tarefasDe(m.id).map((t, i) => `
+              <li class="task">
+                <span class="dot"></span>
+                <span class="task-txt">${escapar(t)}</span>
+                <button class="rm-task" title="Remover" onclick="removerTarefa('${m.id}', ${i})">✕</button>
+              </li>`).join("")}</ul>
+            <div class="add-mini">
+              <input type="text" id="nova-tarefa-${m.id}" placeholder="Nova responsabilidade..." maxlength="70" autocomplete="off" onkeydown="if(event.key==='Enter')addTarefa('${m.id}')">
+              <button class="btn-mini" title="Adicionar responsabilidade" onclick="addTarefa('${m.id}')">+</button>
+            </div>
           </div>
           <div class="perf"></div>
           <div class="section">
